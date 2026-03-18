@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Browser avec Toolbar</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { display: flex; flex-direction: column; height: 100vh; font-family: Arial, sans-serif; }
+    .toolbar-container {
+      background: #f0f0f0;
+      border-bottom: 1px solid #ccc;
+      flex-shrink: 0;
+    }
+    .toolbar-row {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 8px;
+    }
+    .toolbar-row:first-child { padding-top: 6px; gap: 8px; }
+    .toolbar-row:last-child { padding-bottom: 6px; }
+    .toolbar-row button {
+      padding: 8px 16px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .toolbar-row button:hover { background: #e0e0e0; }
+    .toolbar-row button.active { background: #4CAF50; color: #fff; border-color: #388E3C; }
+    .url-bar {
+      flex: 1;
+      padding: 6px 12px;
+      border: 1px solid #aaa;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    .status-bar {
+      padding: 6px 12px;
+      background: #fffde7;
+      border-bottom: 1px solid #f0e68c;
+      font-size: 13px;
+      color: #555;
+      display: none;
+      flex-shrink: 0;
+    }
+    .status-bar.visible { display: block; }
+    webview { flex: 1; width: 100%; }
+
+    /* Modal résultat */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-overlay.visible { display: flex; }
+    .modal {
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      max-width: 500px;
+      max-height: 80vh;
+      overflow-y: auto;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+    .modal h3 { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+    .modal .close-x { background: none; border: none; font-size: 20px; cursor: pointer; color: #999; padding: 0 4px; }
+    .modal .close-x:hover { color: #333; }
+    .modal img { max-width: 100%; border-radius: 4px; margin-bottom: 10px; }
+    .modal .info { margin-bottom: 8px; font-size: 14px; }
+    .modal .info strong { color: #333; }
+    .modal .close-btn {
+      margin-top: 12px;
+      padding: 8px 20px;
+      background: #e53935;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    .modal .save-btn {
+      margin-top: 12px;
+      margin-right: 8px;
+      padding: 8px 20px;
+      background: #4CAF50;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar-container">
+    <div class="toolbar-row">
+      <button id="btnCatalogue">Ajouter un produit</button>
+      <select id="sitesDropdown" style="padding:6px 8px; border:1px solid #aaa; border-radius:4px; font-size:13px; flex:1;">
+        <option value="">Mes fournisseurs</option>
+        <option value="https://www.amazon.fr/">Amazon</option>
+        <option value="https://m.shein.com/fr/">Shein</option>
+        <option value="https://www.zara.com/fr/">Zara</option>
+        <option value="https://www.asos.com/fr/">ASOS</option>
+        <option value="https://m2.hm.com/fr_fr/index.html">H&amp;M</option>
+        <option value="https://www.uniqlo.com/fr/fr/">Uniqlo</option>
+        <option value="https://m.fr.aliexpress.com/">AliExpress</option>
+      </select>
+    </div>
+    <div class="toolbar-row">
+      <button id="homeBtn" title="Accueil" style="padding:4px 6px;min-width:0;">🏠</button>
+      <button id="refreshBtn" title="Rafraîchir" style="padding:4px 6px;min-width:0;">🔄</button>
+      <button id="backBtn" style="padding:4px 6px;min-width:0;">←</button>
+      <button id="fwdBtn" style="padding:4px 6px;min-width:0;">→</button>
+      <input type="text" class="url-bar" id="urlBar" value="https://www.google.com">
+      <button id="goBtn" style="padding:4px 8px;min-width:0;">Go</button>
+    </div>
+  </div>
+  <div class="status-bar" id="statusBar">👆 Cliquez sur le produit qui vous intéresse...</div>
+  <webview id="browser" src="https://www.google.com"
+           useragent="Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+           style="flex:1"></webview>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal" id="modal">
+      <h3>Produit détecté <button class="close-x" id="closeX">✕</button></h3>
+      <img id="modalImg" src="" alt="Produit">
+      <div class="info" id="modalName"></div>
+      <div class="info" id="modalPrice"></div>
+      <div class="info" id="modalSizes"></div>
+      <div>
+        <button class="save-btn" id="saveBtn">Sauvegarder</button>
+        <button class="close-btn" id="closeBtn">Fermer</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    var urlBar = document.getElementById('urlBar');
+    var browser = document.getElementById('browser');
+    var goBtn = document.getElementById('goBtn');
+    var backBtn = document.getElementById('backBtn');
+    var fwdBtn = document.getElementById('fwdBtn');
+    var btnCatalogue = document.getElementById('btnCatalogue');
+    var statusBar = document.getElementById('statusBar');
+    var modalOverlay = document.getElementById('modalOverlay');
+    var pickingMode = false;
+
+    function navigate() {
+      var url = urlBar.value.trim();
+      if (url && !url.startsWith('http')) {
+        url = 'https://' + url;
+        urlBar.value = url;
+      }
+      browser.loadURL(url);
+    }
+
+    goBtn.addEventListener('click', navigate);
+    urlBar.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); navigate(); }
+    });
+    backBtn.addEventListener('click', function() { browser.goBack(); });
+    fwdBtn.addEventListener('click', function() { browser.goForward(); });
+    document.getElementById('homeBtn').addEventListener('click', function() { browser.loadURL('https://www.google.com'); urlBar.value = 'https://www.google.com'; });
+    document.getElementById('refreshBtn').addEventListener('click', function() { browser.reload(); });
+    document.getElementById('sitesDropdown').addEventListener('change', function() {
+      var url = this.value;
+      if (url) { browser.loadURL(url); urlBar.value = url; }
+      this.selectedIndex = 0;
+    });
+
+    browser.addEventListener('did-navigate', function(e) { urlBar.value = e.url; });
+    browser.addEventListener('did-navigate-in-page', function(e) { urlBar.value = e.url; });
+
+    // Anti-détection bot : injecter à chaque page
+    browser.addEventListener('dom-ready', function() {
+      browser.executeJavaScript(`
+        (function() {
+          // Masquer webdriver
+          Object.defineProperty(navigator, 'webdriver', { get: () => false });
+          // Masquer Electron
+          delete window.process;
+          delete window.require;
+          // Faux plugins (comme un vrai navigateur)
+          Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+          // Faux languages
+          Object.defineProperty(navigator, 'languages', { get: () => ['fr-FR', 'fr', 'en-US', 'en'] });
+          // Masquer automation
+          if (window.chrome) {
+            window.chrome.runtime = undefined;
+          } else {
+            window.chrome = { runtime: undefined };
+          }
+        })();
+      `);
+    });
+
+    // Mode picking
+    btnCatalogue.addEventListener('click', function() {
+      pickingMode = !pickingMode;
+      if (pickingMode) {
+        btnCatalogue.classList.add('active');
+        statusBar.classList.add('visible');
+        // Injecter le script de détection dans la webview
+        injectPicker();
+      } else {
+        btnCatalogue.classList.remove('active');
+        statusBar.classList.remove('visible');
+        removePicker();
+      }
+    });
+
+    function injectPicker() {
+      browser.executeJavaScript(`
+        (function() {
+          if (window.__catalogPicker) return;
+          window.__catalogPicker = true;
+
+          var svgCursor = "data:image/svg+xml;utf8," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="36" viewBox="0 0 80 36"><text x="0" y="14" font-family="Arial" font-size="16" fill="gold" stroke="black" stroke-width="0.5">★</text><text x="18" y="14" font-family="Arial" font-size="11" font-weight="bold" fill="white" stroke="black" stroke-width="0.8" paint-order="stroke">Celui là</text></svg>');
+          document.body.style.cursor = 'url(' + svgCursor + ') 8 8, pointer';
+          // Forcer le curseur sur tous les éléments
+          var cursorStyle = document.createElement('style');
+          cursorStyle.id = '__catalogCursorStyle';
+          cursorStyle.textContent = '* { cursor: url(' + svgCursor + ') 8 8, pointer !important; }';
+          document.head.appendChild(cursorStyle);
+
+          // Utilitaire : trouver les éléments proches géographiquement d'un rect
+          function findNearbyElements(refRect, maxDist) {
+            maxDist = maxDist || 400;
+            var all = document.querySelectorAll('span, div, p, a, h1, h2, h3, h4, label, strong, em, button');
+            var found = [];
+            for (var i = 0; i < all.length; i++) {
+              var r = all[i].getBoundingClientRect();
+              if (r.width === 0 && r.height === 0) continue;
+              // Distance entre les deux rects
+              var dx = Math.max(0, Math.max(refRect.left - r.right, r.left - refRect.right));
+              var dy = Math.max(0, Math.max(refRect.top - r.bottom, r.top - refRect.bottom));
+              var dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist < maxDist) {
+                var txt = all[i].textContent.trim();
+                if (txt.length > 0 && txt.length < 300) {
+                  // Déterminer la position relative
+                  var pos = '';
+                  var cx = (r.left + r.right) / 2;
+                  var cy = (r.top + r.bottom) / 2;
+                  var refCx = (refRect.left + refRect.right) / 2;
+                  var refCy = (refRect.top + refRect.bottom) / 2;
+                  if (cy < refRect.top) pos = 'haut';
+                  else if (cy > refRect.bottom) pos = 'bas';
+                  else if (cx < refRect.left) pos = 'gauche';
+                  else pos = 'droite';
+                  found.push({ el: all[i], text: txt, dist: dist, pos: pos, rect: r });
+                }
+              }
+            }
+            found.sort(function(a, b) { return a.dist - b.dist; });
+            return found;
+          }
+
+          // Extraire un prix d'un texte
+          function extractPrice(text) {
+            var m = text.match(/[0-9]+[.,][0-9]{2}\\s*[€$£]/) || text.match(/[€$£]\\s*[0-9]+[.,][0-9]{2}/) || text.match(/[0-9]+[.,][0-9]{2}\\s*(EUR|USD)/i);
+            return m ? m[0] : null;
+          }
+
+          // Extraire des tailles d'un texte
+          function extractSizes(text) {
+            var m = text.match(/\\b(XXS|XS|S|M|L|XL|XXL|XXXL|[3-4][0-9])\\b/g);
+            if (m && m.length >= 1) return [...new Set(m)].join(', ');
+            return null;
+          }
+
+          window.__catalogPickerHandler = function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            var el = e.target;
+            var productData = { image: null, name: null, price: null, sizes: null, debug: [] };
+
+            // === 1. Trouver l'image la plus proche du clic ===
+            var img = null;
+            if (el.tagName === 'IMG') {
+              img = el;
+            } else {
+              img = el.querySelector('img');
+            }
+            if (!img) {
+              var current = el;
+              for (var i = 0; i < 10; i++) {
+                if (!current.parentElement) break;
+                current = current.parentElement;
+                img = current.querySelector('img');
+                if (img) break;
+              }
+            }
+            // Dernier recours : image la plus proche géographiquement du clic
+            if (!img) {
+              var clickX = e.clientX, clickY = e.clientY;
+              var allImgs = document.querySelectorAll('img');
+              var bestDist = Infinity;
+              allImgs.forEach(function(im) {
+                var r = im.getBoundingClientRect();
+                if (r.width < 50 || r.height < 50) return;
+                var cx = (r.left + r.right) / 2;
+                var cy = (r.top + r.bottom) / 2;
+                var d = Math.sqrt((cx - clickX) * (cx - clickX) + (cy - clickY) * (cy - clickY));
+                if (d < bestDist) { bestDist = d; img = im; }
+              });
+            }
+
+            if (img) {
+              productData.image = img.src || img.dataset.src || img.currentSrc || '';
+              // Vérifier srcset pour meilleure qualité
+              if (!productData.image && img.srcset) {
+                var parts = img.srcset.split(',');
+                productData.image = parts[parts.length - 1].trim().split(' ')[0];
+              }
+            }
+
+            // === 2. Chercher le conteneur produit dans le DOM ===
+            var container = el;
+            for (var j = 0; j < 15; j++) {
+              if (!container.parentElement) break;
+              container = container.parentElement;
+              var tagName = container.tagName.toLowerCase();
+              if (tagName === 'article' || tagName === 'li' || tagName === 'section' ||
+                  (container.className && typeof container.className === 'string' &&
+                   (container.className.toLowerCase().includes('product') ||
+                    container.className.toLowerCase().includes('item') ||
+                    container.className.toLowerCase().includes('card')))) {
+                break;
+              }
+            }
+
+            // === 3. Tenter d'extraire depuis le conteneur DOM ===
+            // Nom
+            var nameSelectors = 'a[class*="name"], a[class*="Name"], h2, h3, h4, [class*="name"], [class*="Name"], [class*="description"], [class*="Description"], [class*="title"], [class*="Title"], [class*="product-link"]';
+            var nameEl = container.querySelector(nameSelectors);
+            if (nameEl) productData.name = nameEl.textContent.trim();
+            if (!productData.name) {
+              var allLinks = container.querySelectorAll('a');
+              for (var k = 0; k < allLinks.length; k++) {
+                var linkText = allLinks[k].textContent.trim();
+                if (linkText.length > 3 && linkText.length < 200 && !linkText.match(/^[0-9.,\\s€$£]+$/)) {
+                  productData.name = linkText;
+                  break;
+                }
+              }
+            }
+
+            // Prix
+            var priceEl = container.querySelector('[class*="price"], [class*="Price"], [class*="amount"], [data-qa*="price"], .money, [class*="sale"]');
+            if (priceEl) productData.price = priceEl.textContent.trim();
+            if (!productData.price) {
+              var p = extractPrice(container.innerText || '');
+              if (p) productData.price = p;
+            }
+
+            // Tailles
+            var sizeEls = container.querySelectorAll('[class*="size"], [class*="Size"], [class*="taille"], [data-qa*="size"]');
+            var sizes = [];
+            sizeEls.forEach(function(s) {
+              var t = s.textContent.trim();
+              if (t && t.length < 20) sizes.push(t);
+            });
+            if (sizes.length > 0) productData.sizes = sizes.join(', ');
+            if (!productData.sizes) {
+              var sz = extractSizes(container.innerText || '');
+              if (sz) productData.sizes = sz;
+            }
+
+            // === 4. Si infos manquantes, chercher autour de l'image géographiquement ===
+            if (img && (!productData.name || !productData.price || !productData.sizes)) {
+              var imgRect = img.getBoundingClientRect();
+              var nearby = findNearbyElements(imgRect, 500);
+
+              productData.debug.push('Nearby elements found: ' + nearby.length);
+
+              for (var n = 0; n < nearby.length; n++) {
+                var item = nearby[n];
+                var txt = item.text;
+
+                // Prix
+                if (!productData.price) {
+                  var pFound = extractPrice(txt);
+                  if (pFound) {
+                    productData.price = pFound;
+                    productData.debug.push('Prix trouvé ' + item.pos + ': ' + pFound);
+                  }
+                }
+
+                // Tailles
+                if (!productData.sizes) {
+                  var sFound = extractSizes(txt);
+                  if (sFound) {
+                    productData.sizes = sFound;
+                    productData.debug.push('Tailles trouvées ' + item.pos + ': ' + sFound);
+                  }
+                }
+
+                // Nom : texte suffisamment long, pas un prix, pas une taille
+                if (!productData.name) {
+                  if (txt.length > 3 && txt.length < 200 &&
+                      !txt.match(/^[0-9.,\\s€$£]+$/) &&
+                      !txt.match(/^(XXS|XS|S|M|L|XL|XXL|XXXL|[3-4][0-9])$/) &&
+                      !extractPrice(txt) &&
+                      item.el.tagName !== 'BUTTON') {
+                    productData.name = txt;
+                    productData.debug.push('Nom trouvé ' + item.pos + ': ' + txt);
+                  }
+                }
+              }
+
+              // Si toujours pas de nom, essayer aria-label ou alt de l'image
+              if (!productData.name && img) {
+                if (img.alt && img.alt.length > 3) productData.name = img.alt;
+                else if (img.getAttribute('aria-label')) productData.name = img.getAttribute('aria-label');
+              }
+            }
+
+            window.__catalogPickerData = productData;
+
+            // Cleanup
+            document.body.style.cursor = '';
+            var cs = document.getElementById('__catalogCursorStyle');
+            if (cs) cs.remove();
+            document.removeEventListener('click', window.__catalogPickerHandler, true);
+            window.__catalogPicker = false;
+          };
+
+          document.addEventListener('click', window.__catalogPickerHandler, true);
+        })();
+        'picker_injected';
+      `).then(function() {
+        console.log('Picker injecté');
+      });
+    }
+
+    function removePicker() {
+      browser.executeJavaScript(`
+        (function() {
+          document.body.style.cursor = '';
+          var cs = document.getElementById('__catalogCursorStyle');
+          if (cs) cs.remove();
+          if (window.__catalogPickerHandler) {
+            document.removeEventListener('click', window.__catalogPickerHandler, true);
+          }
+          window.__catalogPicker = false;
+        })();
+      `);
+    }
+
+    // Écouter les clics dans la webview via polling sur les données
+    var pollInterval = null;
+
+    btnCatalogue.addEventListener('click', function() {
+      if (pickingMode) {
+        // Démarrer le polling
+        pollInterval = setInterval(function() {
+          browser.executeJavaScript('JSON.stringify(window.__catalogPickerData || null)')
+            .then(function(result) {
+              var data = JSON.parse(result);
+              if (data) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+                pickingMode = false;
+                btnCatalogue.classList.remove('active');
+                statusBar.classList.remove('visible');
+
+                // Afficher le modal
+                showProductModal(data);
+
+                // Reset
+                browser.executeJavaScript('window.__catalogPickerData = null;');
+              }
+            });
+        }, 500);
+      } else {
+        if (pollInterval) {
+          clearInterval(pollInterval);
+          pollInterval = null;
+        }
+      }
+    });
+
+    function showProductModal(data) {
+      document.getElementById('modalImg').src = data.image || '';
+      document.getElementById('modalImg').style.display = data.image ? 'block' : 'none';
+      document.getElementById('modalName').innerHTML = '<strong>Nom :</strong> ' + (data.name || 'Non détecté');
+      document.getElementById('modalPrice').innerHTML = '<strong>Prix :</strong> ' + (data.price || 'Non détecté');
+      document.getElementById('modalSizes').innerHTML = '<strong>Tailles :</strong> ' + (data.sizes || 'Non détecté');
+      modalOverlay.classList.add('visible');
+    }
+
+    document.getElementById('closeBtn').addEventListener('click', function() {
+      modalOverlay.classList.remove('visible');
+    });
+    document.getElementById('closeX').addEventListener('click', function() {
+      modalOverlay.classList.remove('visible');
+    });
+
+    document.getElementById('saveBtn').addEventListener('click', function() {
+      // TODO: sauvegarder dans le catalogue
+      modalOverlay.classList.remove('visible');
+      statusBar.textContent = '✅ Produit sauvegardé dans le catalogue !';
+      statusBar.classList.add('visible');
+      setTimeout(function() { statusBar.classList.remove('visible'); }, 3000);
+    });
+  </script>
+</body>
+</html>
